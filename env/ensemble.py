@@ -12,14 +12,20 @@ import collections
 
 
 class Ensemble(gym.Env):
-    def __init__(self, optimizers, problem, period, MaxFEs, sample_times, sample_size, seed=0, qr_len=5, record_period=-1, sample_FEs_type=2, terminal_error=1e-8):
+    def __init__(self, optimizers, problem, periods, MaxFEs, sample_times, sample_size, seed=0, qr_len=5, record_period=-1, sample_FEs_type=2, terminal_error=1e-8):
+        self.step_idx = 0
         self.dim = problem.dim
         self.MaxFEs = MaxFEs
-        self.period = period
-        self.max_step = MaxFEs // period
+        self.periods = periods
         self.optimizers = []
+        self.max_step = len(periods)
         for optimizer in optimizers:
-            self.optimizers.append(eval(optimizer)(self.dim))
+            if optimizer == 'random_optimizer':
+                # Special initialization for random_optimizer
+                self.optimizers.append(eval(optimizer)(self.dim, self.periods))
+            else:
+                # Standard initialization for others
+                self.optimizers.append(eval(optimizer)(self.dim))
         self.sample_size = sample_size
         self.sample_times = sample_times
         self.best_history = [[] for _ in range(len(optimizers))]
@@ -41,7 +47,7 @@ class Ensemble(gym.Env):
         self.baseline = False
         if record_period > 0:
             self.baseline = True
-        self.record_period = record_period if record_period > 0 else period
+        self.record_period = record_period if record_period > 0 else MaxFEs // 100
         self.Fevs = np.array([])
         self.seed = seed
         self.final_obs = None
@@ -118,86 +124,101 @@ class Ensemble(gym.Env):
             act = action['action']
             qvalue = action['qvalue']
 
-            last_cost = self.population.gbest
-            pre_best = self.population.gbest_solution
-            pre_worst = self.population.group[np.argmax(self.population.cost)]
-            period = self.period if act < len(self.optimizers) else self.record_period
-            Fevs = []
-            start = time.time()
-            end = self.FEs + self.period
-            while self.FEs < end and self.FEs < self.MaxFEs and self.population.gbest > self.terminal_error:
-                if action['action'] >= len(self.optimizers):
-                    act = np.random.randint(len(self.optimizers))
-                    
-                optimizer = self.optimizers[act]
-                FEs_end = self.FEs + period
-                if self.sample_FEs_type == 1:
-                    # FEs_end -= self.sample_times * self.sample_size
-                    FEs_end -= self.FEs % period
+            # 1. CHECK SCHEDULE COMPLETION
+            if self.step_idx >= len(self.periods):
+                self.done = True
+                # Ensure we return a consistent shape even if called extra times
+                info = self._get_info()
+                return self.final_obs, 0, self.done, {'info': info}
 
-                self.population, Fev, self.FEs = optimizer.step(self.population,
-                                                                 self.problem,
-                                                                 self.FEs,
-                                                                 FEs_end,
-                                                                 self.MaxFEs,
-                                                                 self.record_period,
-                                                                 )
-                Fevs.extend(Fev)
-            end = time.time()
+            # 2. DETERMINE PERIOD LENGTH
+            safe_idx = min(self.step_idx, len(self.periods) - 1)
+            current_period_len = self.periods[safe_idx]
+
+            # 3. SET TARGET FEs
+            target_FEs = min(self.FEs + current_period_len, self.MaxFEs)
+
+            optimizer = self.optimizers[act]
+
+            # 4. RUN OPTIMIZER
+            # We pass record_period, but we don't trust the returned list length strictly
+            self.population, step_fevs, self.FEs = optimizer.step(
+                self.population,
+                self.problem,
+                self.FEs,
+                target_FEs,
+                self.MaxFEs,
+                record_period=current_period_len
+            )
+
+            # 5. STRICT HISTORY UPDATE
+            # Regardless of whether step_fevs has 0, 1, or 5 values,
+            # we append exactly ONE value: the current global best.
+            current_best = self.population.gbest
+            self.Fevs = np.append(self.Fevs, current_best)
+
+            # RL Updates
             self.optimzer_used[act] += 1
-            pos_best = self.population.gbest_solution
-            pos_worst = self.population.group[np.argmax(self.population.cost)]
-            self.best_history[act].append((pos_best - pre_best) / 200)
-            self.worst_history[act].append((pos_worst - pre_worst) / 200)
-            self.done = (self.population.gbest <= self.terminal_error or self.FEs >= self.MaxFEs)
-            # if self.done and np.max(self.time_rec) > 2:
-            #     print(self.time_rec)
-            # reward = 1 * (last_cost - self.population.gbest) / last_cost
-            # reward = 1 if self.population.gbest < last_cost else 0
+            last_cost = self.population.gbest  # Note: logic uses cost before update usually, assuming previous step
+            # reward = max((start_of_step_cost - current_best) / scale, 0)
+
+            # Re-calculating reward based on improvement during this step
+            # last_cost is defined at start of function, so we use it here.
             reward = max((last_cost - self.population.gbest) / self.cost_scale_factor, 0)
-            # reward = max((last_cost - self.population.gbest) / last_cost, 0)
-            # reward = np.arctan(10 * reward)
-            # reward = 1.0 if ((last_cost - self.population.gbest) / last_cost) > 0.0 else 0.0
-            # reward = np.sqrt(reward)
-            # reward = -self.population.gbest / self.cost_scale_factor
-            # reward = -np.max(self.population.cost) / self.cost_scale_factor
+
             self.q_r_history.append(np.concatenate((qvalue, [reward])))
             self.q_r_history = self.q_r_history[-self.qr_len:]
-            self.Fevs = np.append(self.Fevs, Fevs)
-            sample_size = self.sample_size if self.sample_size > 0 else self.population.NP
-            # print(self.FEs, self.FEs + self.sample_times * sample_size)
-            # print(self.Fevs.shape[0])
 
+            # 6. ADVANCE
+            self.step_idx += 1
+
+            # 7. CHECK TERMINATION
+            self.done = (self.step_idx >= len(self.periods)) or (self.FEs >= self.MaxFEs)
+
+            # 8. OBSERVATION
             if self.baseline:
                 observe = None
             else:
                 observe = self.observe()
                 self.final_obs = observe
-            while self.Fevs.shape[0] < self.MaxFEs // self.record_period and self.done:
-                if self.Fevs.shape[0] > 1:
-                    self.Fevs = np.append(self.Fevs, self.Fevs[-1])
-                else:
-                    self.Fevs = np.append(self.Fevs, 0.0)
-            return observe, reward, self.done, {'info': Info(descent_seq=1 - np.array(self.Fevs) / self.cost_scale_factor,
-                                                                    done=self.done,
-                                                                    FEs=self.FEs,
-                                                                    descent=1 - self.population.gbest / self.cost_scale_factor,
-                                                                    best_cost=self.population.gbest,
-                                                                    )
-                                                       }  # next state, reward, is done, info
+
+            # 9. RETURN INFO
+            return observe, reward, self.done, {'info': self._get_info()}
         else:
-            return self.final_obs, -1, self.done, {'info': Info(descent_seq=1 - np.array(self.Fevs) / self.cost_scale_factor,
-                                                               done=self.done,
-                                                               FEs=self.FEs,
-                                                               descent=1 - self.population.gbest / self.cost_scale_factor,
-                                                               best_cost=self.population.gbest,
-                                                               )
-                                                  }  # next state, reward, is done, info
+            return self.final_obs, -1, self.done, {'info': self._get_info()}
+
+    def _get_info(self):
+        """Helper to ensure info arrays are always the correct length (len(periods))."""
+        # If we finished early (e.g. MaxFEs hit), pad the array to match n_periods
+        # so broadcasting in Testing.py works.
+        target_len = len(self.periods)
+        current_fevs = self.Fevs.copy()
+
+        if len(current_fevs) < target_len:
+            # Pad with the last known value
+            last_val = current_fevs[-1] if len(current_fevs) > 0 else 0.0
+            padding = np.full(target_len - len(current_fevs), last_val)
+            current_fevs = np.concatenate((current_fevs, padding))
+        elif len(current_fevs) > target_len:
+            # Trim (shouldn't happen with strict update, but for safety)
+            current_fevs = current_fevs[:target_len]
+
+        return Info(
+            descent_seq=1 - current_fevs / self.cost_scale_factor,
+            done=self.done,
+            FEs=self.FEs,
+            descent=1 - self.population.gbest / self.cost_scale_factor,
+            best_cost=self.population.gbest,
+        )
 
 
 class random_optimizer:
-    def __init__(self, dim):
+    def __init__(self, dim, periods):
         self.dim = dim
+        self.periods = periods
+        # Initialize the underlying optimizers once
+        self.jde = JDE21(self.dim)
+        self.shade = NL_SHADE_RSP(self.dim)
 
     # an uniform interface for testing
     def test_run(self,
@@ -217,19 +238,47 @@ class random_optimizer:
             k += 1
         jde = JDE21(self.dim)
         shade = NL_SHADE_RSP(self.dim)
+        current_FEs = population.NP
         prob = 0.5
-        period = 5000
-        end_fes = 0
-        for i in range(population.NP, MaxFEs, period):
+        for period_len in self.periods:
+            # Stop if we have exceeded budget
+            if current_FEs >= MaxFEs:
+                break
+
+            # Calculate the target end point for this specific step
+            target_FEs = min(current_FEs + period_len, MaxFEs)
+
             # randomly select an optimizer
             if np.random.random() < prob:
-                population, fes, end_fes = jde.step(population, problem, i, min(i + 5000, MaxFEs), MaxFEs)
+                # We ignore the middle return value (step_fevs) for the baseline runner
+                # and focus on updating the population and FEs count
+                population, current_FEs = jde.step(population, problem, current_FEs, target_FEs, MaxFEs)
             else:
-                population, fes, end_fes = shade.step(population, problem, i, min(i + 5000, MaxFEs), MaxFEs)
-            Fevs = np.append(Fevs, fes)
+                population, current_FEs = shade.step(population, problem, current_FEs, target_FEs, MaxFEs)
+
+            # Append the current global best to the history
+            # This ensures we get exactly 1 point per period
+            Fevs = np.append(Fevs, population.gbest)
+
             if population.gbest < 1e-8:
                 break
         while Fevs.shape[0] < 16:
             Fevs = np.append(Fevs, 0.0)
-        return 1 - Fevs[-1] / factor, end_fes
+
+        return 1 - Fevs[-1] / factor, current_FEs
+
+    def step(self, population, problem, FEs, FEs_end, MaxFEs, record_period=None):
+        """
+        Executes one step (period) using a randomly selected optimizer.
+        """
+        # Randomly select between NL_SHADE_RSP (0) and JDE21 (1)
+        if np.random.random() < 0.5:
+            # We ignore the returned step_fevs (middle arg) to rely on the global logic
+            population, _, FEs = self.jde.step(population, problem, FEs, FEs_end, MaxFEs)
+        else:
+            population, _, FEs = self.shade.step(population, problem, FEs, FEs_end, MaxFEs)
+
+        # Return the exact format expected by Ensemble.step
+        # Note: We return [gbest] as the 'step_fevs' to satisfy the strict recording logic
+        return population, [population.gbest], FEs
 

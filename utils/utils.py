@@ -3,11 +3,22 @@ import torch
 
 
 def mean_info(info, key):
-    value = 0
-    for i in range(len(info)):
-        v = np.array(info[i]['info'].get()[key])
-        value += info[i]['info'].get()[key]
-    return value / len(info)
+    # Get all values for the key from the info dictionary
+    values = [x['info'].get()[key] for x in info]
+
+    # Check if the values are arrays/lists (like 'descent_seq')
+    if isinstance(values[0], (list, np.ndarray)):
+        # Find the minimum length among all returned arrays to avoid broadcasting errors
+        min_len = min(len(v) for v in values)
+
+        # Truncate all arrays to the minimum length found
+        truncated_values = [v[:min_len] for v in values]
+
+        # Now they are all the same shape, so we can average them
+        return np.mean(truncated_values, axis=0)
+    else:
+        # Handle scalar values (like 'FEs' or 'best_cost')
+        return np.mean(values)
 
 
 def plot_with_baseline(step, logger, ensemble, baselines):
