@@ -214,7 +214,7 @@ if __name__ == '__main__':
     torch_seed = 1
     optimizers = ['NL_SHADE_RSP', 'MadDE', 'JDE21', 'random_optimizer']
     state_dict = None
-    device = 'cuda:0'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     resume_from_log = False
     run_time = time.strftime("%Y%m%dT%H%M%S")
     plotting_color = ['r', 'g', 'b']
