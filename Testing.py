@@ -1,6 +1,3 @@
-import time
-import gym
-import torch, numpy as np
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from utils import TensorboardLogger
@@ -11,10 +8,8 @@ from env.cec_dataset import *
 from env.optimizer import *
 import env
 import os
-import tqdm
 import warnings
 from utils.utils import *
-from sklearn.manifold import TSNE
 from matplotlib import pyplot as plt
 params = {
     'axes.labelsize':'20',
