@@ -2,6 +2,7 @@ import torch.nn.functional as F
 from torch.distributions import Categorical
 from utils.utils import *
 import os
+import torch
 
 
 class DQN:
