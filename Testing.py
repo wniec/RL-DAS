@@ -1,7 +1,3 @@
-import time
-
-import gym
-import torch, numpy as np
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 from utils import TensorboardLogger
@@ -12,10 +8,8 @@ from env.cec_dataset import *
 from env.optimizer import *
 import env
 import os
-import tqdm
 import warnings
 from utils.utils import *
-from sklearn.manifold import TSNE
 from matplotlib import pyplot as plt
 params = {
     'axes.labelsize':'20',
@@ -46,27 +40,53 @@ class Actor(nn.Module):
             nn.Linear(9 + optimizer_num * 2, 64), nn.Tanh(),
         ]).to(device)
         self.model = nn.Sequential(*[
-            nn.Linear(64, 16), nn.Tanh(),
-            nn.Linear(16, optimizer_num),  nn.Softmax(),
+            nn.Linear(64, 16),
+            nn.Tanh(),
+            nn.Linear(16, optimizer_num),
+            nn.Softmax(dim=-1),
         ]).to(device)
 
-    def forward(self, obs, test=False):
+    def forward(self, obs, test=False, to_critic=False):
+        # 1. Handle 1D input (Single state from agent.learn)
+        if isinstance(obs, torch.Tensor) and obs.dim() == 1:
+            obs = obs.unsqueeze(0)
+        elif isinstance(obs, np.ndarray) and obs.ndim == 1:
+            obs = obs[None, :]
+
+        # 2. Extract and Process Feature
         feature = list(obs[:, 0])
         if not isinstance(feature, torch.Tensor):
             feature = torch.tensor(feature, dtype=torch.float).to(self.device)
+        # Ensure feature is 2D (Batch, 9)
+        if feature.dim() == 1:
+            feature = feature.view(obs.shape[0], -1)
+
         moves = []
         for i in range(len(self.embedders)):
-            moves.append(self.embedders[i](torch.tensor(list(obs[:, i + 1]), dtype=torch.float).to(self.device)))
+            col_data = list(obs[:, i + 1])
+            col_tensor = torch.tensor(col_data, dtype=torch.float).to(self.device)
+            # Ensure history input is 2D (Batch, Dim)
+            if col_tensor.dim() == 1:
+                col_tensor = col_tensor.view(obs.shape[0], -1)
+            moves.append(self.embedders[i](col_tensor))
+
         moves = torch.cat(moves, dim=-1)
         batch = obs.shape[0]
-        feature = torch.cat((feature, moves), dim=-1).view(batch, -1)
-        feature = self.embedder_final(feature)
-        logits = self.model(feature)
+        # Combine features
+        x = torch.cat((feature, moves), dim=-1).view(batch, -1)
+        x = self.embedder_final(x)
+        logits = self.model(x)
+
+        # 3. Handle Return Values based on flags
+        if to_critic:
+            # agent.learn needs (logits, raw_state/embedding)
+            # We return 'obs' (raw state) as the feature for the critic to re-process
+            return logits, obs
+
         if test:
-            out = (feature.detach().cpu().tolist(), logits)
-        else:
-            out = logits
-        return out
+            return (x.detach().cpu().tolist(), logits)
+
+        return logits
 
 
 class PPO_critic(nn.Module):
@@ -87,30 +107,67 @@ class PPO_critic(nn.Module):
             nn.Linear(9 + optimizer_num * 2, 64), nn.Tanh(),
         ]).to(device)
         self.model = nn.Sequential(*[
-            nn.Linear(64, 16), nn.Tanh(),
-            nn.Linear(16, 1), # nn.Softmax(),
+            nn.Linear(64, 16),
+            nn.Tanh(),
+            nn.Linear(16, 1),
         ]).to(device)
 
     def forward(self, obs):
+        # 1. Handle 1D input
+        if isinstance(obs, torch.Tensor) and obs.dim() == 1:
+            obs = obs.unsqueeze(0)
+        elif isinstance(obs, np.ndarray) and obs.ndim == 1:
+            obs = obs[None, :]
+
         feature = list(obs[:, 0])
         if not isinstance(feature, torch.Tensor):
             feature = torch.tensor(feature, dtype=torch.float).to(self.device)
+
+        if feature.dim() == 1:
+            feature = feature.view(obs.shape[0], -1)
+
         moves = []
         for i in range(len(self.embedders)):
-            moves.append(self.embedders[i](torch.tensor(list(obs[:, i + 1]), dtype=torch.float).to(self.device)))
+            col_data = list(obs[:, i + 1])
+            col_tensor = torch.tensor(col_data, dtype=torch.float).to(self.device)
+            if col_tensor.dim() == 1:
+                col_tensor = col_tensor.view(obs.shape[0], -1)
+            moves.append(self.embedders[i](col_tensor))
+
         moves = torch.cat(moves, dim=-1)
         batch = obs.shape[0]
         feature = torch.cat((feature, moves), dim=-1).view(batch, -1)
         feature = self.embedder_final(feature)
-        batch = obs.shape[0]
         bl_val = self.model(feature.view(batch, -1))
         return bl_val
 
 
+def get_periods(
+        n_periods: int, max_function_evaluations: int, minimum_period_length: int, pdb: float
+) -> list:
+    weights = np.power(pdb, np.arange(n_periods))
+    weights /= weights.sum()
+    lengths = np.floor(weights * max_function_evaluations).astype(int)
+    short_indices = lengths < minimum_period_length
+    deficit = np.sum(minimum_period_length - lengths[short_indices])
+    if deficit > max_function_evaluations - (n_periods * minimum_period_length):
+        raise ValueError(f"Impossible to fit {n_periods} periods.")
+    lengths[short_indices] = minimum_period_length
+    long_indices = ~short_indices
+    if np.any(long_indices):
+        surplus_weights = weights[long_indices]
+        surplus_weights /= surplus_weights.sum()
+        reductions = np.floor(surplus_weights * deficit).astype(int)
+        lengths[long_indices] -= reductions
+    current_sum = lengths.sum()
+    remainder = max_function_evaluations - current_sum
+    max_idx = np.argmax(lengths)
+    lengths[max_idx] += remainder
+    return lengths.tolist()
+
+
 if __name__ == '__main__':
     warnings.filterwarnings("ignore")
-    # parameters
-    # VectorEnv = env.DummyVectorEnv
     VectorEnv = env.SubprocVectorEnv
     problem = ['Schwefel']
     subproblems = ['Ackley', 'Ellipsoidal', 'Griewank', 'Rastrigin']
@@ -118,8 +175,8 @@ if __name__ == '__main__':
     Comp_lamda = [1, 10, 1]
     Comp_sigma = [10, 20, 30]
     indicated_dataset = None
-    shifted=True
-    rotated=True
+    shifted = True
+    rotated = True
     Train_set = 1024
     Test_set = 1024
     rl = 'PPO'  # DQN / PPO
@@ -128,7 +185,10 @@ if __name__ == '__main__':
     dim = 10
     batch_size = 16
     MaxFEs = 200000
-    period = 2500
+    n_periods = 80
+    period_division_base = 1.1
+
+    periods = get_periods(n_periods, MaxFEs, 100, period_division_base)
     Epoch = 500
     epsilon = 0.3
     epsilon_decay = 0.99
@@ -139,7 +199,7 @@ if __name__ == '__main__':
     sample_size = -1
     sample_FEs_type = 2
     n_step = 5
-    k_epoch = int(0.3*(MaxFEs // period))
+    k_epoch = int(0.3 * sum(periods) / len(periods))  # 30% of average period length
     testing_repeat = 1
     testing_internal = 5
     testing_seeds = 1
@@ -147,14 +207,13 @@ if __name__ == '__main__':
     test_seed = 1
     data_gen_seed = 2
     torch_seed = 1
-    optimizers = ['NL_SHADE_RSP', 'MadDE',  'JDE21']
+    optimizers = ['NL_SHADE_RSP', 'MadDE', 'JDE21', 'random_optimizer']
     state_dict = None
-    device = 'cuda:0'
+    device = 'cuda' if torch.cuda.is_available() else 'cpu'
     resume_from_log = False
     run_time = time.strftime("%Y%m%dT%H%M%S")
     plotting_color = ['r', 'g', 'b']
 
-    # initial
     np.random.seed(data_gen_seed)
     torch.manual_seed(torch_seed)
     data_loader = Training_Dataset(filename=None, dim=dim, num_samples=Train_set, problems=problem, biased=False, shifted=shifted, rotated=rotated,
@@ -163,7 +222,9 @@ if __name__ == '__main__':
     test_data = Training_Dataset(filename=None, dim=dim, num_samples=Test_set, problems=problem, biased=False, shifted=shifted, rotated=rotated,
                                  batch_size=batch_size, save_generated_data=False, problem_list=subproblems, 
                                  problem_length=sublength, indicated_specific=True, indicated_dataset=indicated_dataset)
-    ensemble = Ensemble(optimizers, Schwefel(dim, np.random.rand(dim), np.eye(dim), 0), period, MaxFEs, sample_times, sample_size)
+
+    ensemble = Ensemble(optimizers, Schwefel(dim, np.random.rand(dim), np.eye(dim), 0), periods, MaxFEs, sample_times,
+                        sample_size)
     np.random.seed(0)
 
     print('=' * 75)
@@ -172,7 +233,7 @@ if __name__ == '__main__':
           (f'Rotated ' if rotated else f'Unrotated ') + 
           f'Problem: {problem} with Dim: {dim}\n'
           f'Train Dataset: {Train_set} and Test Dataset: {Test_set}\n'
-          f'MaxFEs: {MaxFEs} with Period: {period}\n'
+          f'MaxFEs: {MaxFEs} with {len(periods)} periods growing exponentially with base {period_division_base}\n'
           f'Feature Sample Times: {sample_times} with Sample Size: {sample_size if sample_size > 0 else "population"}\n'
           f'External FEs Type: {sample_FEs_type}\n'
           f'Optimizers: {optimizers}\n'
@@ -193,8 +254,10 @@ if __name__ == '__main__':
 
     baselines = []
     for optimizer in optimizers:
-        baselines.append(eval(optimizer)(dim))
-    baselines.append(random_optimizer(dim, baselines))
+        if optimizer == 'random_optimizer':
+            baselines.append(random_optimizer(dim, periods))
+        else:
+            baselines.append(eval(optimizer)(dim))
 
     state_shape = ensemble.observation_space.shape or ensemble.observation_space.n
     action_shape = ensemble.action_space.shape or ensemble.action_space.n
@@ -256,10 +319,10 @@ if __name__ == '__main__':
         time.sleep(0.1)
         test_feature = [[]] * len(optimizers)
         act_count = np.zeros(len(optimizers))
-        avg_descent = np.zeros(ensemble.max_step)
+        avg_descent = None
         avg_FEs = 0
         for bid, problems in enumerate(test_data):
-            envs = [lambda e=p: Ensemble(optimizers, e, period, MaxFEs, sample_times, sample_size, seed=testing_seeds,
+            envs = [lambda e=p: Ensemble(optimizers, e, periods, MaxFEs, sample_times, sample_size, seed=testing_seeds,
                                          sample_FEs_type=sample_FEs_type) for i, p in enumerate(problems)]
 
             test_envs = VectorEnv(envs)
@@ -277,7 +340,10 @@ if __name__ == '__main__':
                         test_feature[i].append(label[i][j])
             act_count += act
             test_envs.close()
-            avg_descent += descent
+            if avg_descent is None:
+                avg_descent = descent
+            else:
+                avg_descent += descent
             avg_FEs += FEs
         avg_descent /= test_data.N // test_data.batch_size
         avg_FEs /= test_data.N // test_data.batch_size
@@ -288,20 +354,29 @@ if __name__ == '__main__':
         print('baseline testing...')
         time.sleep(0.1)
 
-        avg_baselines = {baseline.__class__.__name__: np.zeros(ensemble.max_step) for baseline in baselines}
+        avg_baselines = {baseline.__class__.__name__: None for baseline in baselines}
         avg_baselines_FEs = {baseline.__class__.__name__: 0 for baseline in baselines}
         avg_base_cost = 0
+
+        baseline_opt_names = optimizers
+
         for bid, problems in enumerate(test_data):
-            envs = [lambda e=p: Ensemble(optimizers, e, MaxFEs, MaxFEs, sample_times, sample_size, seed=testing_seeds,
-                                         record_period=period) for i, p in enumerate(problems)]
+            envs = [lambda e=p: Ensemble(baseline_opt_names, e, periods, MaxFEs, sample_times, sample_size,
+                                         seed=testing_seeds) for i, p in enumerate(problems)]
             base_test_env = VectorEnv(envs)
             batch_num = test_data.N // test_data.batch_size
-            avg_baseline, avg_baseline_FEs, avg_gbest = baseline_test(baselines, base_test_env, testing_repeat, MaxFEs, period, bid, batch_num)
+            avg_baseline, avg_baseline_FEs, avg_gbest = baseline_test(baselines, base_test_env, testing_repeat, MaxFEs,
+                                                                      periods, bid, batch_num)
             avg_base_cost += avg_gbest
             base_test_env.close()
             for baseline in baselines:
-                avg_baselines[baseline.__class__.__name__] += avg_baseline[baseline.__class__.__name__]
-                avg_baselines_FEs[baseline.__class__.__name__] += avg_baseline_FEs[baseline.__class__.__name__]
+                name = baseline.__class__.__name__
+                if avg_baselines[name] is None:
+                    avg_baselines[name] = avg_baseline[name]
+                else:
+                    avg_baselines[name] += avg_baseline[name]
+                avg_baselines_FEs[name] += avg_baseline_FEs[name]
+
         for baseline in baselines:
             avg_baselines[baseline.__class__.__name__] /= test_data.N // test_data.batch_size
             avg_baselines_FEs[baseline.__class__.__name__] /= test_data.N // test_data.batch_size
@@ -336,8 +411,9 @@ if __name__ == '__main__':
         data_loader.shuffle()
         for bid, problems in enumerate(data_loader):
             # 将batch问题转化为并行环境
-            envs = [lambda e=p: Ensemble(optimizers, e, period, MaxFEs, sample_times, sample_size, sample_FEs_type=sample_FEs_type, terminal_error=avg_base_cost) for i, p in enumerate(problems)]
-
+            envs = [lambda e=p: Ensemble(optimizers, e, periods, MaxFEs, sample_times, sample_size,
+                                         sample_FEs_type=sample_FEs_type, terminal_error=avg_base_cost) for i, p in
+                    enumerate(problems)]
             train_envs = VectorEnv(envs)
             batch_num = data_loader.N // data_loader.batch_size
             if rl == 'DQN':
@@ -361,11 +437,11 @@ if __name__ == '__main__':
 
             test_feature = [[]] * len(optimizers)
             act_count = np.zeros(len(optimizers))
-            avg_descent = np.zeros(ensemble.max_step)
+            avg_descent = None
             avg_FEs = 0
             for bid, problems in enumerate(test_data):
                 envs = [
-                    lambda e=p: Ensemble(optimizers, e, period, MaxFEs, sample_times, sample_size, seed=testing_seeds,
+                    lambda e=p: Ensemble(optimizers, e, periods, MaxFEs, sample_times, sample_size, seed=testing_seeds,
                                          sample_FEs_type=sample_FEs_type) for i, p in enumerate(problems)]
 
                 test_envs = VectorEnv(envs)
@@ -382,7 +458,10 @@ if __name__ == '__main__':
                             test_feature[i].append(label[i][j])
                 act_count += act
                 test_envs.close()
-                avg_descent += descent
+                if avg_descent is None:
+                    avg_descent = descent
+                else:
+                    avg_descent += descent
                 avg_FEs += FEs
             avg_descent /= test_data.N // test_data.batch_size
             avg_FEs /= test_data.N // test_data.batch_size

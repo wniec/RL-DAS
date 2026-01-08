@@ -247,7 +247,7 @@ def baseline_test(baselines,
                   base_test_env,
                   test_repeat,
                   MaxFEs,
-                  period,
+                  periods,
                   bid,
                   b_num,
                   ):
@@ -256,7 +256,7 @@ def baseline_test(baselines,
     avg_gbest = 0
     for i, baseline in enumerate(baselines):
         FEs = 0
-        avg_descent = np.zeros(MaxFEs // period)
+        avg_descent = None
 
         pbar = tqdm.tqdm(total=test_repeat,
                          desc=f'Baseline algorithm {baseline.__class__.__name__} batch {bid + 1} / {b_num}',
@@ -264,7 +264,10 @@ def baseline_test(baselines,
         for repeat in range(test_repeat):
             base_test_env.reset()
             _, _, _, info = base_test_env.step([{'action': i, 'qvalue': [0, 0]} for _ in range(base_test_env.env_num)])
-            avg_descent += mean_info(info, 'descent_seq')
+            if avg_descent is None:
+                avg_descent = mean_info(info, 'descent_seq')
+            else:
+                avg_descent += mean_info(info, 'descent_seq')
             FEs += mean_info(info, 'FEs')
             avg_gbest += mean_info(info, 'best_cost')
             pbar.update()

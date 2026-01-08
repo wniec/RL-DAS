@@ -1,12 +1,8 @@
-import torch
-import numpy as np
-import collections
-import copy
-import random
 import torch.nn.functional as F
-from torch.distributions import Categorical, Distribution
+from torch.distributions import Categorical
 from utils.utils import *
 import os
+import torch
 
 
 class DQN:
@@ -172,7 +168,7 @@ class PPO:
         self.critic.load_state_dict(models['critic'])
 
     def actor_forward(self, x, test=False, to_critic=False):
-        return self.actor(x, test, to_critic)
+        return self.actor(x, test=test, to_critic=to_critic)
 
     def actor_forward_without_grad(self, x, test=False):
         with torch.no_grad():
