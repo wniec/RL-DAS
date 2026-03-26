@@ -1,16 +1,20 @@
 from torch import nn
 from torch.utils.tensorboard import SummaryWriter
+
+from agent import DQN, PPO
+from env.ensemble import Ensemble, random_optimizer
+from trainer import Q_test, Policy_test, baseline_test, Q_train, Policy_train
 from utils import TensorboardLogger
-from agent import *
-from trainer import *
-from env.ensemble import *
-from env.cec_dataset import *
-from env.optimizer import *
+import time
+from env.cec_dataset import Training_Dataset, Schwefel
 import env
 import os
 import warnings
-from utils.utils import *
+import torch
+import numpy as np
 from matplotlib import pyplot as plt
+
+from utils.utils import plot_with_baseline
 
 params = {
     "axes.labelsize": "20",

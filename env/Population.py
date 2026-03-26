@@ -1,6 +1,14 @@
 import scipy.stats as stats
-from env.utils import *
 import numpy as np
+
+from env.utils import (
+    cal_fdc,
+    rw_sampling,
+    dispersion,
+    non_improvable_worsenable,
+    negative_slope_coefficient,
+    average_neutral_ratio,
+)
 
 
 class Population:
@@ -146,10 +154,9 @@ class Population:
         gbc = self.gbest / cost_scale_factor
         fdc = cal_fdc(self.group / 100, self.cost / cost_scale_factor)
         random_walk_samples = rw_sampling(self.group)
-        walk_costs = problem.func(random_walk_samples)
+        problem.func(random_walk_samples)
         # disp, disp_ratio, evp, nsc, anr, ni, nw, adf
         disp, disp_ratio = dispersion(self.group, self.cost)
-        evp = population_evolvability(self.cost, sample_costs)
         nsc = negative_slope_coefficient(self.cost, sample_costs[0])
         anr = average_neutral_ratio(self.cost, sample_costs)
         ni, nw = non_improvable_worsenable(self.cost, sample_costs)

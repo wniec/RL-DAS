@@ -1,5 +1,3 @@
-import time
-
 import gym
 from gym import spaces
 from .optimizer import JDE21, NL_SHADE_RSP
@@ -111,10 +109,7 @@ class Ensemble(gym.Env):
                 move[i * 2 + 1] = np.mean(self.worst_history[i], 0).tolist()
                 best_move[i] = np.mean(self.best_history[i], 0).tolist()
                 worst_move[i] = np.mean(self.worst_history[i], 0).tolist()
-        # move = list(np.concatenate((best_move, worst_move), 0))
         move.insert(0, feature)
-        # move.append(np.array(self.q_r_history).reshape(-1))
-        # move.append(np.array((self.optimzer_used / np.sum(self.optimzer_used)) if np.sum(self.optimzer_used) > 0 else np.zeros(len(self.optimizers))).reshape(-1))
         return move
 
     def seed(self, seed=None):
@@ -145,7 +140,6 @@ class Ensemble(gym.Env):
             pre_worst = self.population.group[np.argmax(self.population.cost)]
             period = self.period if act < len(self.optimizers) else self.record_period
             Fevs = []
-            start = time.time()
             end = self.FEs + self.period
             while (
                 self.FEs < end
@@ -170,7 +164,6 @@ class Ensemble(gym.Env):
                     self.record_period,
                 )
                 Fevs.extend(Fev)
-            end = time.time()
             self.optimzer_used[act] += 1
             pos_best = self.population.gbest_solution
             pos_worst = self.population.group[np.argmax(self.population.cost)]
@@ -179,27 +172,12 @@ class Ensemble(gym.Env):
             self.done = (
                 self.population.gbest <= self.terminal_error or self.FEs >= self.MaxFEs
             )
-            # if self.done and np.max(self.time_rec) > 2:
-            #     print(self.time_rec)
-            # reward = 1 * (last_cost - self.population.gbest) / last_cost
-            # reward = 1 if self.population.gbest < last_cost else 0
             reward = max(
                 (last_cost - self.population.gbest) / self.cost_scale_factor, 0
             )
-            # reward = max((last_cost - self.population.gbest) / last_cost, 0)
-            # reward = np.arctan(10 * reward)
-            # reward = 1.0 if ((last_cost - self.population.gbest) / last_cost) > 0.0 else 0.0
-            # reward = np.sqrt(reward)
-            # reward = -self.population.gbest / self.cost_scale_factor
-            # reward = -np.max(self.population.cost) / self.cost_scale_factor
             self.q_r_history.append(np.concatenate((qvalue, [reward])))
             self.q_r_history = self.q_r_history[-self.qr_len :]
             self.Fevs = np.append(self.Fevs, Fevs)
-            sample_size = (
-                self.sample_size if self.sample_size > 0 else self.population.NP
-            )
-            # print(self.FEs, self.FEs + self.sample_times * sample_size)
-            # print(self.Fevs.shape[0])
 
             if self.baseline:
                 observe = None

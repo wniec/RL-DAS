@@ -44,7 +44,7 @@ def Q_train(
         act_rec.append(np.array(act))
         rew_rec.append(rewards)
         done_rec.append(is_done)
-        step_count[is_done == False] += 1
+        step_count[not is_done] += 1
         returns, loss = agent.learning()
         obs = obs_next
         all_done = done_check(is_done)
@@ -215,7 +215,7 @@ def Policy_train(
         memory["rewards"].append(np.array(rewards, dtype=np.float32))
         memory["bl_val"].append(baseline_val)
         memory["bl_val_detached"].append(baseline_val_detached)
-        step_count[is_done == False] += 1
+        step_count[not is_done] += 1
 
         avg_probs = probs.cpu().mean(0)
         act_count = np.zeros(probs.shape[1])
