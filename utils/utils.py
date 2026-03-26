@@ -10,49 +10,6 @@ def mean_info(info, key):
     return value / len(info)
 
 
-def plot_with_baseline(step, logger, ensemble, baselines):
-    for i in range(ensemble.shape[0]):
-        data = {"ensemble": ensemble[i]}
-        for k, v in baselines.items():
-            data[k] = v[i]
-        logger.write_together(f"test/test{step}", i, data)
-
-
-def to_transition(obs, act, obs_n, rew, done):
-    bs = rew.shape[0]
-    transitions = []
-    for i in range(bs):
-        if rew[i] >= 0:
-            transitions.append((obs[i], act[i], obs_n[i], rew[i], done[i]))
-    return transitions
-
-
-def obs_max_min(obs):
-    up = -1e15
-    lo = 1e15
-    unnormal = ()
-    for ob in obs:
-        for i in range(len(ob)):
-            up = max(np.max(ob[i]), up)
-            if up > 10:
-                unnormal = (i, np.argmax(ob[i]))
-                print(ob)
-            lo = min(np.min(ob[i]), lo)
-            if lo < -10:
-                unnormal = (i, np.argmin(ob[i]))
-                print(ob)
-    return up, lo, unnormal
-
-
-def log_obs(logger, obs, step):
-    ob = obs[0]
-    d = 0
-    for item in ob:
-        for value in item:
-            logger.write(f"obs/obs{d}", step, {f"obs/obs{d}": value})
-            d += 1
-
-
 def clip_grad_norms(param_groups, max_norm=np.inf):
     """
     Clips the norms for all param groups to max_norm and returns gradient norms before clipping
@@ -79,11 +36,11 @@ def clip_grad_norms(param_groups, max_norm=np.inf):
 
 class ReplayBuffer:
     def __init__(self, maxlen=30000):
-        self.state = np.array([], dtype=np.object)
-        self.action = np.array([], dtype=np.int)
-        self.next_state = np.array([], dtype=np.object)
+        self.state = np.array([], dtype=object)
+        self.action = np.array([], dtype=np.int32)
+        self.next_state = np.array([], dtype=object)
         self.reward = np.array([])
-        self.done = np.array([], dtype=np.bool)
+        self.done = np.array([], dtype=bool)
         self.maxlen = maxlen
 
     def size(self):
@@ -93,7 +50,7 @@ class ReplayBuffer:
         self.state = np.append(self.state, obs).reshape(-1, obs.shape[1])
         self.action = np.append(self.action, act)
         self.next_state = np.append(
-            self.next_state, np.array(obs_n, dtype=np.object)
+            self.next_state, np.array(obs_n, dtype=object)
         ).reshape(-1, obs_n.shape[1])
         self.reward = np.append(self.reward, rew)
         self.done = np.append(self.done, done)

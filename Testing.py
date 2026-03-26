@@ -13,17 +13,8 @@ import os
 import warnings
 import torch
 import numpy as np
-from matplotlib import pyplot as plt
 
-params = {
-    "axes.labelsize": "20",
-    "xtick.labelsize": "18",
-    "ytick.labelsize": "18",
-    "lines.linewidth": "3",
-    "legend.fontsize": "24",
-    "figure.figsize": "12,8",
-}
-plt.rcParams.update(params)
+# TODO: import wandb
 
 
 class Actor(nn.Module):
@@ -130,7 +121,7 @@ class PPO_critic(nn.Module):
             *[
                 nn.Linear(64, 16),
                 nn.Tanh(),
-                nn.Linear(16, 1),  # nn.Softmax(),
+                nn.Linear(16, 1),
             ]
         ).to(device)
 
@@ -156,8 +147,6 @@ class PPO_critic(nn.Module):
 
 if __name__ == "__main__":
     warnings.filterwarnings("ignore")
-    # parameters
-    # VectorEnv = env.DummyVectorEnv
     VectorEnv = env.SubprocVectorEnv
     problem = ["Schwefel"]
     subproblems = ["Ackley", "Ellipsoidal", "Griewank", "Rastrigin"]
@@ -168,7 +157,6 @@ if __name__ == "__main__":
     shifted = True
     rotated = True
     Train_set = 1024
-    Test_set = 1024
     rl = "PPO"  # DQN / PPO
     buf_size = 30000
     rep_size = 3000
@@ -187,42 +175,27 @@ if __name__ == "__main__":
     sample_FEs_type = 2
     n_step = 5
     k_epoch = int(0.3 * (MaxFEs // period))
-    testing_repeat = 1
-    testing_internal = 5
-    testing_seeds = 1
     save_internal = 5
-    test_seed = 1
     data_gen_seed = 2
     torch_seed = 1
     optimizers = ["NL_SHADE_RSP", "MadDE", "JDE21"]
     state_dict = None
     device = "cuda:0"
-    resume_from_log = False
     run_time = time.strftime("%Y%m%dT%H%M%S")
-    plotting_color = ["r", "g", "b"]
 
-    # initial
+    # TODO: Initialize wandb run here, e.g.:
+    # wandb.init(project="RL-DAS", name=run_time, config={
+    #     "problem": problem, "dim": dim, "MaxFEs": MaxFEs, "period": period,
+    #     "Epoch": Epoch, "lr": lr, "critic_lr": critic_lr, "k_epoch": k_epoch,
+    #     "optimizers": optimizers, "rl": rl, "batch_size": batch_size,
+    # })
+
     np.random.seed(data_gen_seed)
     torch.manual_seed(torch_seed)
     data_loader = Training_Dataset(
         filename=None,
         dim=dim,
         num_samples=Train_set,
-        problems=problem,
-        biased=False,
-        shifted=shifted,
-        rotated=rotated,
-        batch_size=batch_size,
-        save_generated_data=False,
-        problem_list=subproblems,
-        problem_length=sublength,
-        indicated_specific=True,
-        indicated_dataset=indicated_dataset,
-    )
-    test_data = Training_Dataset(
-        filename=None,
-        dim=dim,
-        num_samples=Test_set,
         problems=problem,
         biased=False,
         shifted=shifted,
@@ -250,7 +223,7 @@ if __name__ == "__main__":
         ("Shifted " if shifted else "Unshifted ")
         + ("Rotated " if rotated else "Unrotated ")
         + f'Problem: {problem} with Dim: {dim}\n'
-        f'Train Dataset: {Train_set} and Test Dataset: {Test_set}\n'
+        f'Train Dataset: {Train_set}\n'
         f'MaxFEs: {MaxFEs} with Period: {period}\n'
         f'Feature Sample Times: {sample_times} with Sample Size: {sample_size if sample_size > 0 else "population"}\n'
         f'External FEs Type: {sample_FEs_type}\n'
@@ -262,7 +235,6 @@ if __name__ == "__main__":
         f'Batch Size: {batch_size}\n'
         f'Learning Rate: {lr} with decay: {lr_decay}\n'
         f'Epoch: {Epoch}\n'
-        f'Test Internal: {testing_internal} with Test Repeat: {testing_repeat}\n'
         f'Device: {device}\n'
         f'Env: {VectorEnv.__name__}\n'
         f'Loaded Model: {state_dict}\n'
@@ -274,7 +246,6 @@ if __name__ == "__main__":
     action_shape = ensemble.action_space.shape or ensemble.action_space.n
 
     if rl == "DQN":
-        # DQN
         net = Actor(dim, action_shape, device)
         if state_dict is not None:
             net.load_state_dict(torch.load(state_dict, map_location=device))
@@ -287,12 +258,7 @@ if __name__ == "__main__":
         if state_dict is not None:
             model = torch.load(state_dict, map_location=device)
             net.load_state_dict(model["actor"])
-            # matrix = torch.eye(15).to(device)
-            # x = net.model(net.embedder_final(matrix)).detach()
-            # print(x / x.sum(0))
             critic.load_state_dict(model["critic"])
-            # y = torch.abs(critic.model(net.embedder_final(matrix)).detach())
-            # print(y / y.sum())
         optim = torch.optim.Adam(
             [{"params": net.parameters(), "lr": lr}]
             + [{"params": critic.parameters(), "lr": critic_lr}]
@@ -300,34 +266,19 @@ if __name__ == "__main__":
         policy = PPO(net, critic, optim, device=device)
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optim, lr_decay)
 
-    # 初始化logger
+    # TODO: Use WandbLogger from utils/logger/wandb.py instead of (or alongside) TensorboardLogger:
+    # logger = WandbLogger(train_interval=batch_size, update_interval=batch_size, project="RL-DAS")
     writer = SummaryWriter("log/" + rl + "-" + run_time)
     logger = TensorboardLogger(
         writer, train_interval=batch_size, update_interval=batch_size
     )
     log_path = "save_policy_" + rl + "/" + run_time
-    pic_path = "log/" + rl + "-" + run_time + "/test_pic"
     if not os.path.exists(log_path):
         os.makedirs(log_path)
-    if not os.path.exists(pic_path):
-        os.makedirs(pic_path)
-
-    def save_fn(policy, epoch, stamp):
-        torch.save(
-            policy.state_dict(),
-            os.path.join(log_path, "policy-" + stamp + f"-{epoch}.pth"),
-        )
 
     policy.save(log_path, 0, run_time)
 
-    # 迭代次数和数据记录
-    batch_count = 0
-    test_steps = 0
-    best_epoch = -1
-    best_FEs = MaxFEs
-    best_descent = 0
     avg_base_cost = 1e-8
-
     total_steps = 0
     train_steps = 0
     for epoch in range(Epoch):
@@ -370,35 +321,9 @@ if __name__ == "__main__":
         logger.write(
             "train/learning rate", epoch, {"train/lr": lr_scheduler.get_lr()[-1]}
         )
+        # TODO: wandb.log({"train/lr": lr_scheduler.get_lr()[-1]}, step=epoch)
+
         if (epoch + 1) % save_internal == 0:
             policy.save(log_path, epoch, run_time)
-
-        # 一个epoch完进行测试
-        if testing_internal > 0 and (epoch + 1) % testing_internal == 0:
-            print("testing...")
-            time.sleep(0.1)
-
-            test_feature = [[]] * len(optimizers)
-            act_count = np.zeros(len(optimizers))
-            avg_descent = np.zeros(ensemble.max_step)
-            avg_FEs = 0
-            for bid, problems in enumerate(test_data):
-                envs = [
-                    lambda e=p: Ensemble(
-                        optimizers,
-                        e,
-                        period,
-                        MaxFEs,
-                        sample_times,
-                        sample_size,
-                        seed=testing_seeds,
-                        sample_FEs_type=sample_FEs_type,
-                    )
-                    for i, p in enumerate(problems)
-                ]
-
-                test_envs = VectorEnv(envs)
-                batch_num = test_data.N // test_data.batch_size
-            avg_descent /= test_data.N // test_data.batch_size
-            avg_FEs /= test_data.N // test_data.batch_size
-            time.sleep(0.1)
+            # TODO: Log model checkpoint to wandb:
+            # wandb.save(os.path.join(log_path, f"policy-{run_time}-{epoch}.pth"))
