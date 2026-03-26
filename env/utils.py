@@ -17,16 +17,16 @@ class Info:
 
 # random walk sampler
 def rw_sampling(group):
-    gs,dim = group.shape
+    gs, dim = group.shape
     Pmax = np.max(group, axis=0)
     Pmin = np.min(group, axis=0)
     size = Pmax - Pmin
     walk = []
     walk.append(np.random.rand(dim))
-    for i in range(1,gs):
+    for i in range(1, gs):
         step = np.random.rand(dim) * size
-        tmp_res = walk[i-1] + step
-        walk.append(tmp_res-np.floor(tmp_res))
+        tmp_res = walk[i - 1] + step
+        walk.append(tmp_res - np.floor(tmp_res))
     return np.array(walk)
 
 
@@ -41,21 +41,21 @@ def compare_diff(diff, epsilon):
             S_epsilon.append(1)
         else:
             S_epsilon.append(0)
-    for i in range(len(S_epsilon)-1):
-        if S_epsilon[i] == -1 and S_epsilon[i+1] == 0:
+    for i in range(len(S_epsilon) - 1):
+        if S_epsilon[i] == -1 and S_epsilon[i + 1] == 0:
             label_counts[0] += 1
-        if S_epsilon[i] == -1 and S_epsilon[i+1] == 1:
+        if S_epsilon[i] == -1 and S_epsilon[i + 1] == 1:
             label_counts[1] += 1
-        if S_epsilon[i] == 1 and S_epsilon[i+1] == 0:
+        if S_epsilon[i] == 1 and S_epsilon[i + 1] == 0:
             label_counts[2] += 1
-        if S_epsilon[i] == 1 and S_epsilon[i+1] == -1:
+        if S_epsilon[i] == 1 and S_epsilon[i + 1] == -1:
             label_counts[3] += 1
-        if S_epsilon[i] == 0 and S_epsilon[i+1] == -1:
+        if S_epsilon[i] == 0 and S_epsilon[i + 1] == -1:
             label_counts[4] += 1
-        if S_epsilon[i] == 0 and S_epsilon[i+1] == 1:
+        if S_epsilon[i] == 0 and S_epsilon[i + 1] == 1:
             label_counts[5] += 1
     probs = label_counts / np.sum(label_counts)
-    entropy = -1 * np.sum(probs * (np.log(probs)/np.log(6)))
+    entropy = -1 * np.sum(probs * (np.log(probs) / np.log(6)))
     return entropy
 
 
@@ -70,23 +70,23 @@ these well designed features will further participate in total feature of encodi
 def cal_fdc(group, costs):
     opt_x = sorted(zip(group, costs), key=lambda x: x[1])[0][0]
     ds = np.sum((group - opt_x) ** 2, axis=1)
-    fs = 1/(costs+(1e-8))
+    fs = 1 / (costs + (1e-8))
     C_fd = ((fs - fs.mean()) * (ds - ds.mean())).mean()
     delta_f = ((fs - fs.mean()) ** 2).mean()
     delta_d = ((ds - ds.mean()) ** 2).mean()
-    return C_fd/((delta_d * delta_f) + (1e-8))
+    return C_fd / ((delta_d * delta_f) + (1e-8))
 
 
 # calculate RIE(ruggedness of information entropy) of group
 def cal_rf(costs):
-    diff = costs[1:] - costs[:len(costs) - 1]
+    diff = costs[1:] - costs[: len(costs) - 1]
     epsilon_max = np.max(diff)
     entropy_list = []
     factor = 128
     while factor >= 1:
-        entropy_list.append(compare_diff(diff,epsilon_max/factor))
+        entropy_list.append(compare_diff(diff, epsilon_max / factor))
         factor /= 2
-    entropy_list.append(compare_diff(diff,0))
+    entropy_list.append(compare_diff(diff, 0))
     return np.max(entropy_list)
 
 
@@ -95,21 +95,21 @@ def cal_acf(costs):
     temp = costs[:-1]
     temp_shift = costs[1:]
     fmean = np.mean(costs)
-    cov = np.sum((temp - fmean)*(temp_shift - fmean))
-    v = np.sum((costs - fmean)**2)
-    return cov/(v+(1e-8))
+    cov = np.sum((temp - fmean) * (temp_shift - fmean))
+    v = np.sum((costs - fmean) ** 2)
+    return cov / (v + (1e-8))
 
 
 # calculate local fitness landscape metric
 def cal_nopt(group, costs):
     opt_x = sorted(zip(group, costs), key=lambda x: x[1])[0][0]
     ds = np.sum((group - opt_x) ** 2, axis=1)
-    costs_sorted, _ = zip(*sorted(zip(costs,ds),key=lambda x:x[1]))
+    costs_sorted, _ = zip(*sorted(zip(costs, ds), key=lambda x: x[1]))
     counts = 0
     for i in range(len(costs) - 1):
-        if costs_sorted[i+1] <= costs_sorted[i]:
+        if costs_sorted[i + 1] <= costs_sorted[i]:
             counts += 1
-    return counts/len(costs)
+    return counts / len(costs)
 
 
 # dispersion metric and ratio
@@ -126,7 +126,7 @@ def dispersion(group, costs):  # [a] + [f]
         distances = np.sqrt(np.sum((group_sorted - shift_group) ** 2, -1))
         disp += np.sum(distances)
         max_dis = np.maximum(max_dis, np.max(distances))
-    disp /= gs ** 2
+    disp /= gs**2
     # calculate avg distance of 10% individuals
     disp10 = 0
     gs10 = gs * 10 // 100
@@ -134,7 +134,7 @@ def dispersion(group, costs):  # [a] + [f]
     for i in range(1, gs10):
         shift_group = np.concatenate((group_sorted[i:], group_sorted[:i]), 0)
         disp10 += np.sum(np.sqrt(np.sum((group_sorted - shift_group) ** 2, -1)))
-    disp10 /= gs10 ** 2
+    disp10 /= gs10**2
     return disp10 - disp, max_dis / diam
 
 
@@ -144,7 +144,10 @@ def population_evolvability(group_cost, sample_costs):  # [i]
     gs = group_cost.shape[0]
     if n_plus == 0:
         return 0
-    evp = np.sum(np.fabs(fbs - np.min(group_cost)) / gs / (np.std(group_cost) + 1e-8)) / sample_costs.shape[0]
+    evp = (
+        np.sum(np.fabs(fbs - np.min(group_cost)) / gs / (np.std(group_cost) + 1e-8))
+        / sample_costs.shape[0]
+    )
     return evp
 
 
@@ -171,14 +174,27 @@ def average_neutral_ratio(group_cost, sample_costs, eps=1):
 
 def non_improvable_worsenable(group_cost, sample_costs):
     gs = sample_costs.shape[1]
-    NI = 1 - np.count_nonzero(np.sum(group_cost[:gs] > sample_costs, -1)) / sample_costs.shape[0]
-    NW = 1 - np.count_nonzero(np.sum(group_cost[:gs] < sample_costs, -1)) / sample_costs.shape[0]
+    NI = (
+        1
+        - np.count_nonzero(np.sum(group_cost[:gs] > sample_costs, -1))
+        / sample_costs.shape[0]
+    )
+    NW = (
+        1
+        - np.count_nonzero(np.sum(group_cost[:gs] < sample_costs, -1))
+        / sample_costs.shape[0]
+    )
     return NI, NW
 
 
 def average_delta_fitness(group_cost, sample_costs):
     gs = sample_costs.shape[1]
-    return np.sum(sample_costs - group_cost[:gs]) / sample_costs.shape[0] / gs / np.max(group_cost[:gs])
+    return (
+        np.sum(sample_costs - group_cost[:gs])
+        / sample_costs.shape[0]
+        / gs
+        / np.max(group_cost[:gs])
+    )
 
 
 # Online score judge, get performance sequences from running algorithms and calculate scores
@@ -191,9 +207,9 @@ def score_judge(results):
             Fevs = np.array([])
             FEs = np.array([])
             for alg in range(alg_num):
-                Fevs = np.append(Fevs, results[alg][problem][config]['Fevs'][:, -1])
-                FEs = np.append(FEs, results[alg][problem][config]['success_fes'])
-            nm = n*alg_num
+                Fevs = np.append(Fevs, results[alg][problem][config]["Fevs"][:, -1])
+                FEs = np.append(FEs, results[alg][problem][config]["success_fes"])
+            nm = n * alg_num
             order = sorted(list(zip(FEs, Fevs, np.arange(nm))))
             for i in range(nm):
                 score[order[i][2] // n] += nm - i
@@ -209,14 +225,14 @@ def score_judge_from_file(result_paths, num_problem):
     score = np.zeros(alg_num)
     fpts = []
     for i in range(alg_num):
-        fpts.append(open(result_paths[i], 'r'))
+        fpts.append(open(result_paths[i], "r"))
     for p in range(num_problem):
         Fevs = np.array([])
         FEs = np.array([])
         for alg in range(alg_num):
             fpt = fpts[alg]
             text = fpt.readline()
-            while text != 'Function error values:\n':
+            while text != "Function error values:\n":
                 text = fpt.readline()
             for i in range(n):
                 text = fpt.readline().split()
@@ -229,8 +245,6 @@ def score_judge_from_file(result_paths, num_problem):
             score[order[i][2] // n] += nm - i
         score -= n * (n + 1) / 2
     return score
-
-
 
 
 class CloudpickleWrapper(object):

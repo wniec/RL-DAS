@@ -46,7 +46,7 @@ class MovAvg(object):
             if number not in self.banned:
                 self.cache.append(number)
         if self.size > 0 and len(self.cache) > self.size:
-            self.cache = self.cache[-self.size:]
+            self.cache = self.cache[-self.size :]
         return self.get()
 
     def get(self) -> float:
@@ -73,9 +73,7 @@ class RunningMeanStd(object):
     """
 
     def __init__(
-        self,
-        mean: Union[float, np.ndarray] = 0.0,
-        std: Union[float, np.ndarray] = 1.0
+        self, mean: Union[float, np.ndarray] = 0.0, std: Union[float, np.ndarray] = 1.0
     ) -> None:
         self.mean, self.var = mean, std
         self.count = 0

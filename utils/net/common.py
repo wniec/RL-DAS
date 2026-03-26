@@ -173,14 +173,16 @@ class Net(nn.Module):
             if not concat:
                 q_output_dim, v_output_dim = action_dim, num_atoms
             q_kwargs: Dict[str, Any] = {
-                **q_kwargs, "input_dim": self.output_dim,
+                **q_kwargs,
+                "input_dim": self.output_dim,
                 "output_dim": q_output_dim,
-                "device": self.device
+                "device": self.device,
             }
             v_kwargs: Dict[str, Any] = {
-                **v_kwargs, "input_dim": self.output_dim,
+                **v_kwargs,
+                "input_dim": self.output_dim,
                 "output_dim": v_output_dim,
-                "device": self.device
+                "device": self.device,
             }
             self.Q, self.V = MLP(**q_kwargs), MLP(**v_kwargs)
             self.output_dim = self.Q.output_dim
@@ -263,16 +265,17 @@ class Recurrent(nn.Module):
             # we store the stack data in [bsz, len, ...] format
             # but pytorch rnn needs [len, bsz, ...]
             obs, (hidden, cell) = self.nn(
-                obs, (
+                obs,
+                (
                     state["hidden"].transpose(0, 1).contiguous(),
-                    state["cell"].transpose(0, 1).contiguous()
-                )
+                    state["cell"].transpose(0, 1).contiguous(),
+                ),
             )
         obs = self.fc2(obs[:, -1])
         # please ensure the first dim is batch size: [bsz, len, ...]
         return obs, {
             "hidden": hidden.transpose(0, 1).detach(),
-            "cell": cell.transpose(0, 1).detach()
+            "cell": cell.transpose(0, 1).detach(),
         }
 
 
@@ -306,8 +309,9 @@ class DataParallelNet(nn.Module):
         super().__init__()
         self.net = nn.DataParallel(net)
 
-    def forward(self, obs: Union[np.ndarray, torch.Tensor], *args: Any,
-                **kwargs: Any) -> Tuple[Any, Any]:
+    def forward(
+        self, obs: Union[np.ndarray, torch.Tensor], *args: Any, **kwargs: Any
+    ) -> Tuple[Any, Any]:
         if not isinstance(obs, torch.Tensor):
             obs = torch.as_tensor(obs, dtype=torch.float32)
         return self.net(obs=obs.cuda(), *args, **kwargs)

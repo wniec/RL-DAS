@@ -53,7 +53,7 @@ class Actor(nn.Module):
             input_dim,  # type: ignore
             self.output_dim,
             hidden_sizes,
-            device=self.device
+            device=self.device,
         )
         self.softmax_output = softmax_output
 
@@ -110,7 +110,7 @@ class Critic(nn.Module):
             input_dim,  # type: ignore
             last_size,
             hidden_sizes,
-            device=self.device
+            device=self.device,
         )
 
     def forward(
@@ -148,8 +148,9 @@ class CosineEmbeddingNetwork(nn.Module):
             start=1, end=self.num_cosines + 1, dtype=taus.dtype, device=taus.device
         ).view(1, 1, self.num_cosines)
         # Calculate cos(i * \pi * \tau).
-        cosines = torch.cos(taus.view(batch_size, N, 1) * i_pi
-                            ).view(batch_size * N, self.num_cosines)
+        cosines = torch.cos(taus.view(batch_size, N, 1) * i_pi).view(
+            batch_size * N, self.num_cosines
+        )
         # Calculate embeddings of taus.
         tau_embeddings = self.net(cosines).view(batch_size, N, self.embedding_dim)
         return tau_embeddings
@@ -184,7 +185,7 @@ class ImplicitQuantileNetwork(Critic):
         hidden_sizes: Sequence[int] = (),
         num_cosines: int = 64,
         preprocess_net_output_dim: Optional[int] = None,
-        device: Union[str, int, torch.device] = "cpu"
+        device: Union[str, int, torch.device] = "cpu",
     ) -> None:
         last_size = np.prod(action_shape)
         super().__init__(
@@ -195,7 +196,7 @@ class ImplicitQuantileNetwork(Critic):
         )
         self.embed_model = CosineEmbeddingNetwork(
             num_cosines,
-            self.input_dim  # type: ignore
+            self.input_dim,  # type: ignore
         ).to(device)
 
     def forward(  # type: ignore
@@ -208,8 +209,9 @@ class ImplicitQuantileNetwork(Critic):
         taus = torch.rand(
             batch_size, sample_size, dtype=logits.dtype, device=logits.device
         )
-        embedding = (logits.unsqueeze(1) *
-                     self.embed_model(taus)).view(batch_size * sample_size, -1)
+        embedding = (logits.unsqueeze(1) * self.embed_model(taus)).view(
+            batch_size * sample_size, -1
+        )
         out = self.last(embedding).view(batch_size, sample_size, -1).transpose(1, 2)
         return (out, taus), hidden
 
@@ -279,25 +281,30 @@ class FullQuantileFunction(ImplicitQuantileNetwork):
         device: Union[str, int, torch.device] = "cpu",
     ) -> None:
         super().__init__(
-            preprocess_net, action_shape, hidden_sizes, num_cosines,
-            preprocess_net_output_dim, device
+            preprocess_net,
+            action_shape,
+            hidden_sizes,
+            num_cosines,
+            preprocess_net_output_dim,
+            device,
         )
 
-    def _compute_quantiles(
-        self, obs: torch.Tensor, taus: torch.Tensor
-    ) -> torch.Tensor:
+    def _compute_quantiles(self, obs: torch.Tensor, taus: torch.Tensor) -> torch.Tensor:
         batch_size, sample_size = taus.shape
-        embedding = (obs.unsqueeze(1) *
-                     self.embed_model(taus)).view(batch_size * sample_size, -1)
-        quantiles = self.last(embedding).view(batch_size, sample_size,
-                                              -1).transpose(1, 2)
+        embedding = (obs.unsqueeze(1) * self.embed_model(taus)).view(
+            batch_size * sample_size, -1
+        )
+        quantiles = (
+            self.last(embedding).view(batch_size, sample_size, -1).transpose(1, 2)
+        )
         return quantiles
 
     def forward(  # type: ignore
-        self, obs: Union[np.ndarray, torch.Tensor],
+        self,
+        obs: Union[np.ndarray, torch.Tensor],
         propose_model: FractionProposalNetwork,
         fractions: Optional[Batch] = None,
-        **kwargs: Any
+        **kwargs: Any,
     ) -> Tuple[Any, torch.Tensor]:
         r"""Mapping: s -> Q(s, \*)."""
         logits, hidden = self.preprocess(obs, state=kwargs.get("state", None))
@@ -341,8 +348,8 @@ class NoisyLinear(nn.Module):
         self.sigma_bias = nn.Parameter(torch.FloatTensor(out_features))
 
         # Factorized noise parameters.
-        self.register_buffer('eps_p', torch.FloatTensor(in_features))
-        self.register_buffer('eps_q', torch.FloatTensor(out_features))
+        self.register_buffer("eps_p", torch.FloatTensor(in_features))
+        self.register_buffer("eps_q", torch.FloatTensor(out_features))
 
         self.in_features = in_features
         self.out_features = out_features
@@ -411,7 +418,7 @@ class IntrinsicCuriosityModule(nn.Module):
         feature_dim: int,
         action_dim: int,
         hidden_sizes: Sequence[int] = (),
-        device: Union[str, torch.device] = "cpu"
+        device: Union[str, torch.device] = "cpu",
     ) -> None:
         super().__init__()
         self.feature_net = feature_net
@@ -419,22 +426,24 @@ class IntrinsicCuriosityModule(nn.Module):
             feature_dim + action_dim,
             output_dim=feature_dim,
             hidden_sizes=hidden_sizes,
-            device=device
+            device=device,
         )
         self.inverse_model = MLP(
             feature_dim * 2,
             output_dim=action_dim,
             hidden_sizes=hidden_sizes,
-            device=device
+            device=device,
         )
         self.feature_dim = feature_dim
         self.action_dim = action_dim
         self.device = device
 
     def forward(
-        self, s1: Union[np.ndarray, torch.Tensor],
-        act: Union[np.ndarray, torch.Tensor], s2: Union[np.ndarray,
-                                                        torch.Tensor], **kwargs: Any
+        self,
+        s1: Union[np.ndarray, torch.Tensor],
+        act: Union[np.ndarray, torch.Tensor],
+        s2: Union[np.ndarray, torch.Tensor],
+        **kwargs: Any,
     ) -> Tuple[torch.Tensor, torch.Tensor]:
         r"""Mapping: s1, act, s2 -> mse_loss, act_hat."""
         s1 = to_torch(s1, dtype=torch.float32, device=self.device)

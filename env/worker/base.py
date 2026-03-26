@@ -12,8 +12,9 @@ class EnvWorker(ABC):
     def __init__(self, env_fn: Callable[[], gym.Env]) -> None:
         self._env_fn = env_fn
         self.is_closed = False
-        self.result: Union[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray],
-                           np.ndarray]
+        self.result: Union[
+            Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray
+        ]
         self.action_space = self.get_env_attr("action_space")  # noqa: B009
         self.is_reset = False
 
@@ -45,7 +46,7 @@ class EnvWorker(ABC):
                 self.send_action(action)  # type: ignore
 
     def recv(
-        self
+        self,
     ) -> Union[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
         """Receive result from low-level worker.
 
@@ -80,9 +81,7 @@ class EnvWorker(ABC):
 
     @staticmethod
     def wait(
-        workers: List["EnvWorker"],
-        wait_num: int,
-        timeout: Optional[float] = None
+        workers: List["EnvWorker"], wait_num: int, timeout: Optional[float] = None
     ) -> List["EnvWorker"]:
         """Given a list of workers, return those ready ones."""
         raise NotImplementedError

@@ -1,5 +1,4 @@
 import ctypes
-import multiprocessing
 import time
 from collections import OrderedDict
 from multiprocessing import Array, Pipe, connection
@@ -63,7 +62,6 @@ def _worker(
     env_fn_wrapper: CloudpickleWrapper,
     obs_bufs: Optional[Union[dict, tuple, ShArray]] = None,
 ) -> None:
-
     def _encode_obs(
         obs: Union[dict, tuple, np.ndarray], buffer: Union[dict, tuple, ShArray]
     ) -> None:
@@ -153,9 +151,8 @@ class SubprocEnvWorker(EnvWorker):
         self.parent_remote.send(["setattr", {"key": key, "value": value}])
 
     def _decode_obs(self) -> Union[dict, tuple, np.ndarray]:
-
         def decode_obs(
-            buffer: Optional[Union[dict, tuple, ShArray]]
+            buffer: Optional[Union[dict, tuple, ShArray]],
         ) -> Union[dict, tuple, np.ndarray]:
             if isinstance(buffer, ShArray):
                 return buffer.get()
@@ -192,7 +189,7 @@ class SubprocEnvWorker(EnvWorker):
         self.parent_remote.send(["step", action])
 
     def recv(
-        self
+        self,
     ) -> Union[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
         result = self.parent_remote.recv()
         if isinstance(result, tuple):

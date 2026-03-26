@@ -67,14 +67,14 @@ class BaseLogger(ABC):
         """
         assert collect_result["n/ep"] > 0
         if step - self.last_log_test_step >= self.test_interval:
-            info = collect_result['info']
+            info = collect_result["info"]
             avg_FEs = 0
             avg_descent = 0
             success_rate = 0
             for i in range(len(info)):
-                avg_descent += info[i]['info'].get()['descent']
-                avg_FEs += info[i]['info'].get()['FEs']
-                if info[i]['info'].get()['best_cost'] < 1e-8:
+                avg_descent += info[i]["info"].get()["descent"]
+                avg_FEs += info[i]["info"].get()["FEs"]
+                if info[i]["info"].get()["best_cost"] < 1e-8:
                     success_rate += 1
             avg_descent /= len(info)
             avg_FEs /= len(info)

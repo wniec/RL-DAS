@@ -7,6 +7,12 @@ from utils.logger.wandb import WandbLogger
 from utils.statistics import MovAvg, RunningMeanStd
 
 __all__ = [
-    "MovAvg", "RunningMeanStd", "tqdm_config", "BaseLogger", "TensorboardLogger",
-    "BasicLogger", "LazyLogger", "WandbLogger"
+    "MovAvg",
+    "RunningMeanStd",
+    "tqdm_config",
+    "BaseLogger",
+    "TensorboardLogger",
+    "BasicLogger",
+    "LazyLogger",
+    "WandbLogger",
 ]

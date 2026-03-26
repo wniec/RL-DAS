@@ -12,7 +12,6 @@ except ImportError:
 
 
 class _SetAttrWrapper(gym.Wrapper):
-
     def set_env_attr(self, key: str, value: Any) -> None:
         setattr(self.env, key, value)
 
@@ -52,7 +51,7 @@ class RayEnvWorker(EnvWorker):
             self.result = self.env.step.remote(action)
 
     def recv(
-        self
+        self,
     ) -> Union[Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray], np.ndarray]:
         return ray.get(self.result)
 
