@@ -11,9 +11,9 @@ git clone https://github.com/GMC-DRL/RL-DAS.git
 ## Requirements
 * Platform preferences: Linux (for better parallelism).
 
-The dependencies of this project are listed in `requirements.txt`. You can install them using the following command.
+You can install project dependencies using the following command:
 ```bash
-pip install -r requirements.txt
+uv sync
 ```
 
 ## Quick Start

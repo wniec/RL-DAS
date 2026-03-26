@@ -2,7 +2,7 @@ import gym
 from gym import spaces
 
 from .Population import Population
-from .optimizer import JDE21, NL_SHADE_RSP, MadDE # noqa
+from .optimizer import JDE21, NL_SHADE_RSP, MadDE  # noqa
 import numpy as np
 import warnings
 import copy

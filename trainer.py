@@ -215,7 +215,7 @@ def Policy_train(
         memory["rewards"].append(np.array(rewards, dtype=np.float32))
         memory["bl_val"].append(baseline_val)
         memory["bl_val_detached"].append(baseline_val_detached)
-        step_count[is_done==False] += 1
+        step_count[is_done == False] += 1
 
         avg_probs = probs.cpu().mean(0)
         act_count = np.zeros(probs.shape[1])

@@ -1,11 +1,10 @@
 from torch import nn
-from torch.utils.tensorboard import SummaryWriter
 
 from agent import DQN, PPO
 from env.cec_test_func import Schwefel
 from env.ensemble import Ensemble
 from trainer import Policy_train
-from utils import TensorboardLogger
+from utils import WandbLogger
 import time
 from env.cec_dataset import Training_Dataset
 import env
@@ -13,8 +12,7 @@ import os
 import warnings
 import torch
 import numpy as np
-
-# TODO: import wandb
+import wandb
 
 
 class Actor(nn.Module):
@@ -184,11 +182,23 @@ if __name__ == "__main__":
     run_time = time.strftime("%Y%m%dT%H%M%S")
 
     # TODO: Initialize wandb run here, e.g.:
-    # wandb.init(project="RL-DAS", name=run_time, config={
-    #     "problem": problem, "dim": dim, "MaxFEs": MaxFEs, "period": period,
-    #     "Epoch": Epoch, "lr": lr, "critic_lr": critic_lr, "k_epoch": k_epoch,
-    #     "optimizers": optimizers, "rl": rl, "batch_size": batch_size,
-    # })
+    wandb.init(
+        project="RL-DAS",
+        name=run_time,
+        config={
+            "problem": problem,
+            "dim": dim,
+            "MaxFEs": MaxFEs,
+            "period": period,
+            "Epoch": Epoch,
+            "lr": lr,
+            "critic_lr": critic_lr,
+            "k_epoch": k_epoch,
+            "optimizers": optimizers,
+            "rl": rl,
+            "batch_size": batch_size,
+        },
+    )
 
     np.random.seed(data_gen_seed)
     torch.manual_seed(torch_seed)
@@ -266,12 +276,7 @@ if __name__ == "__main__":
         policy = PPO(net, critic, optim, device=device)
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optim, lr_decay)
 
-    # TODO: Use WandbLogger from utils/logger/wandb.py instead of (or alongside) TensorboardLogger:
-    # logger = WandbLogger(train_interval=batch_size, update_interval=batch_size, project="RL-DAS")
-    writer = SummaryWriter("log/" + rl + "-" + run_time)
-    logger = TensorboardLogger(
-        writer, train_interval=batch_size, update_interval=batch_size
-    )
+    logger = WandbLogger(train_interval=batch_size, update_interval=batch_size, project="RL-DAS")
     log_path = "save_policy_" + rl + "/" + run_time
     if not os.path.exists(log_path):
         os.makedirs(log_path)
@@ -321,7 +326,7 @@ if __name__ == "__main__":
         logger.write(
             "train/learning rate", epoch, {"train/lr": lr_scheduler.get_lr()[-1]}
         )
-        # TODO: wandb.log({"train/lr": lr_scheduler.get_lr()[-1]}, step=epoch)
+        TODO: wandb.log({"train/lr": lr_scheduler.get_lr()[-1]}, step=epoch)
 
         if (epoch + 1) % save_internal == 0:
             policy.save(log_path, epoch, run_time)
