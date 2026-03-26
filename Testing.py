@@ -2,19 +2,18 @@ from torch import nn
 from torch.utils.tensorboard import SummaryWriter
 
 from agent import DQN, PPO
-from env.ensemble import Ensemble, random_optimizer
-from trainer import Q_test, Policy_test, baseline_test, Q_train, Policy_train
+from env.cec_test_func import Schwefel
+from env.ensemble import Ensemble
+from trainer import Policy_train
 from utils import TensorboardLogger
 import time
-from env.cec_dataset import Training_Dataset, Schwefel
+from env.cec_dataset import Training_Dataset
 import env
 import os
 import warnings
 import torch
 import numpy as np
 from matplotlib import pyplot as plt
-
-from utils.utils import plot_with_baseline
 
 params = {
     "axes.labelsize": "20",
@@ -271,11 +270,6 @@ if __name__ == "__main__":
     )
     print("=" * 75)
 
-    baselines = []
-    for optimizer in optimizers:
-        baselines.append(eval(optimizer)(dim))
-    baselines.append(random_optimizer(dim))
-
     state_shape = ensemble.observation_space.shape or ensemble.observation_space.n
     action_shape = ensemble.action_space.shape or ensemble.action_space.n
 
@@ -333,157 +327,12 @@ if __name__ == "__main__":
     best_FEs = MaxFEs
     best_descent = 0
     avg_base_cost = 1e-8
-    avg_baselines = None
-    avg_baselines_FEs = None
-
-    # 训练开始前测试
-    if testing_internal > 0:
-        print("testing...")
-        time.sleep(0.1)
-        test_feature = [[]] * len(optimizers)
-        act_count = np.zeros(len(optimizers))
-        avg_descent = np.zeros(ensemble.max_step)
-        avg_FEs = 0
-        for bid, problems in enumerate(test_data):
-            envs = [
-                lambda e=p: Ensemble(
-                    optimizers,
-                    e,
-                    period,
-                    MaxFEs,
-                    sample_times,
-                    sample_size,
-                    seed=testing_seeds,
-                    sample_FEs_type=sample_FEs_type,
-                )
-                for i, p in enumerate(problems)
-            ]
-
-            test_envs = VectorEnv(envs)
-            batch_num = test_data.N // test_data.batch_size
-
-            if rl == "DQN":
-                descent, FEs, label, act = Q_test(
-                    policy,
-                    test_envs,
-                    test_steps,
-                    testing_repeat,
-                    ensemble.max_step,
-                    bid,
-                    batch_num,
-                )
-                for i in range(len(optimizers)):
-                    for j in range(len(label[i])):
-                        test_feature[i].append(label[i][j])
-            else:
-                descent, FEs, label, act = Policy_test(
-                    policy,
-                    test_envs,
-                    test_steps,
-                    testing_repeat,
-                    ensemble.max_step,
-                    bid,
-                    batch_num,
-                )
-                for i in range(len(optimizers)):
-                    for j in range(len(label[i])):
-                        test_feature[i].append(label[i][j])
-            act_count += act
-            test_envs.close()
-            avg_descent += descent
-            avg_FEs += FEs
-        avg_descent /= test_data.N // test_data.batch_size
-        avg_FEs /= test_data.N // test_data.batch_size
-        # print(avg_descent[-1])
-        total_feature = np.concatenate(test_feature, 0)
-
-        print("baseline testing...")
-        time.sleep(0.1)
-
-        avg_baselines = {
-            baseline.__class__.__name__: np.zeros(ensemble.max_step)
-            for baseline in baselines
-        }
-        avg_baselines_FEs = {baseline.__class__.__name__: 0 for baseline in baselines}
-        avg_base_cost = 0
-        for bid, problems in enumerate(test_data):
-            envs = [
-                lambda e=p: Ensemble(
-                    optimizers,
-                    e,
-                    MaxFEs,
-                    MaxFEs,
-                    sample_times,
-                    sample_size,
-                    seed=testing_seeds,
-                    record_period=period,
-                )
-                for i, p in enumerate(problems)
-            ]
-            base_test_env = VectorEnv(envs)
-            batch_num = test_data.N // test_data.batch_size
-            avg_baseline, avg_baseline_FEs, avg_gbest = baseline_test(
-                baselines, base_test_env, testing_repeat, MaxFEs, period, bid, batch_num
-            )
-            avg_base_cost += avg_gbest
-            base_test_env.close()
-            for baseline in baselines:
-                avg_baselines[baseline.__class__.__name__] += avg_baseline[
-                    baseline.__class__.__name__
-                ]
-                avg_baselines_FEs[baseline.__class__.__name__] += avg_baseline_FEs[
-                    baseline.__class__.__name__
-                ]
-        for baseline in baselines:
-            avg_baselines[baseline.__class__.__name__] /= (
-                test_data.N // test_data.batch_size
-            )
-            avg_baselines_FEs[baseline.__class__.__name__] /= (
-                test_data.N // test_data.batch_size
-            )
-        avg_base_cost /= test_data.N // test_data.batch_size
-        # avg_base_cost = max(avg_base_cost, 1e-8)
-        avg_base_cost = 1e-8
-        # 记录测试结果
-        data = {"ensemble": avg_FEs}
-        for k, v in avg_baselines_FEs.items():
-            data[k] = v
-        logger.write_together("test/FEs", test_steps, data)
-        data = {"ensemble": avg_descent[-1]}
-        for k, v in avg_baselines.items():
-            data[k] = v[-1]
-        logger.write_together("test/descent", test_steps, data)
-        act_count /= np.sum(act_count)
-        logger.write_together(
-            "test/action",
-            test_steps,
-            {f"action{i}": act_count[i] for i in range(len(act_count))},
-        )
-
-        if (
-            best_epoch < 0
-            or best_FEs > avg_FEs
-            or (best_descent < avg_descent[-1] and best_FEs == avg_FEs)
-        ):
-            best_epoch, best_FEs, best_descent = 0, avg_FEs, avg_descent[-1]
-        plot_with_baseline(0, logger, avg_descent, avg_baselines)
-
-        test_steps += 1
-        print(
-            f"best testing descent: {best_descent}, ending FEs: {best_FEs} in epoch {best_epoch}"
-        )
-        for baseline in baselines:
-            print(
-                f"baseline {baseline.__class__.__name__} descent: {avg_baselines[baseline.__class__.__name__][-1]} "
-            )
-        time.sleep(0.1)
 
     total_steps = 0
     train_steps = 0
     for epoch in range(Epoch):
         data_loader.shuffle()
         for bid, problems in enumerate(data_loader):
-            # 将batch问题转化为并行环境
             envs = [
                 lambda e=p: Ensemble(
                     optimizers,
@@ -500,31 +349,18 @@ if __name__ == "__main__":
 
             train_envs = VectorEnv(envs)
             batch_num = data_loader.N // data_loader.batch_size
-            if rl == "DQN":
-                total_steps = Q_train(
-                    policy,
-                    train_envs,
-                    logger,
-                    epsilon,
-                    total_steps,
-                    ensemble.max_step,
-                    epoch,
-                    bid,
-                    batch_num,
-                )
-            else:
-                total_steps = Policy_train(
-                    policy,
-                    train_envs,
-                    logger,
-                    total_steps,
-                    train_steps,
-                    k_epoch,
-                    ensemble.max_step,
-                    epoch,
-                    bid,
-                    batch_num,
-                )
+            total_steps = Policy_train(
+                policy,
+                train_envs,
+                logger,
+                total_steps,
+                train_steps,
+                k_epoch,
+                ensemble.max_step,
+                epoch,
+                bid,
+                batch_num,
+            )
             train_steps += k_epoch
 
             train_envs.close()
@@ -563,76 +399,6 @@ if __name__ == "__main__":
 
                 test_envs = VectorEnv(envs)
                 batch_num = test_data.N // test_data.batch_size
-                if rl == "DQN":
-                    descent, FEs, label, act = Q_test(
-                        policy,
-                        test_envs,
-                        test_steps,
-                        testing_repeat,
-                        ensemble.max_step,
-                        bid,
-                        batch_num,
-                    )
-                    for i in range(len(optimizers)):
-                        for j in range(len(label[i])):
-                            test_feature[i].append(label[i][j])
-                else:
-                    descent, FEs, label, act = Policy_test(
-                        policy,
-                        test_envs,
-                        test_steps,
-                        testing_repeat,
-                        ensemble.max_step,
-                        bid,
-                        batch_num,
-                    )
-                    for i in range(len(optimizers)):
-                        for j in range(len(label[i])):
-                            test_feature[i].append(label[i][j])
-                act_count += act
-                test_envs.close()
-                avg_descent += descent
-                avg_FEs += FEs
             avg_descent /= test_data.N // test_data.batch_size
             avg_FEs /= test_data.N // test_data.batch_size
-            total_feature = np.concatenate(test_feature, 0)
-
-            # 记录测试结果
-            data = {"ensemble": avg_FEs}
-            for k, v in avg_baselines_FEs.items():
-                data[k] = v
-            logger.write_together("test/FEs", test_steps, data)
-            data = {"ensemble": avg_descent[-1]}
-            for k, v in avg_baselines.items():
-                data[k] = v[-1]
-            logger.write_together("test/descent", test_steps, data)
-            act_count /= np.sum(act_count)
-            logger.write_together(
-                "test/action",
-                test_steps,
-                {f"action{i}": act_count[i] for i in range(len(act_count))},
-            )
-
-            if (
-                best_epoch < 0
-                or best_descent < avg_descent[-1]
-                or (best_FEs > avg_FEs and best_descent == avg_descent[-1])
-            ):
-                best_epoch, best_FEs, best_descent = epoch + 1, avg_FEs, avg_descent[-1]
-            plot_with_baseline(epoch + 1, logger, avg_descent, avg_baselines)
-
-            test_steps += 1
-
-            print(
-                f"best testing descent: {best_descent}, ending FEs: {best_FEs} in epoch {best_epoch}"
-            )
-            print(
-                f"testing descent: {avg_descent[-1]}, ending FEs: {avg_FEs} in epoch {epoch}"
-            )
-            for baseline in baselines:
-                print(
-                    f"baseline {baseline.__class__.__name__} descent: {avg_baselines[baseline.__class__.__name__][-1]}"
-                )
             time.sleep(0.1)
-
-    # print(f'Finished training! Use {result["duration"]}')

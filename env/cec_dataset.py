@@ -6,7 +6,14 @@ import pickle
 import time
 import numpy as np
 
-from env.cec_test_func import functions, Composition, Hybrid, Composition2005F18, Composition2005F23, Problem
+from env.cec_test_func import (
+    functions,
+    Composition,
+    Hybrid,
+    Composition2005F18,
+    Composition2005F23,
+    Problem,
+)
 
 # make a dictionary contains all supported problems
 problem_types = copy.deepcopy(functions)

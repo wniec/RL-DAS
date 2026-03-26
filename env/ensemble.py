@@ -1,8 +1,9 @@
 import gym
 from gym import spaces
-from .optimizer import JDE21, NL_SHADE_RSP
+
+from .Population import Population
+from .optimizer import JDE21, NL_SHADE_RSP, MadDE # noqa
 import numpy as np
-from Population import Population
 import warnings
 import copy
 
