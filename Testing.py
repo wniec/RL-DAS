@@ -255,25 +255,18 @@ if __name__ == "__main__":
     state_shape = ensemble.observation_space.shape or ensemble.observation_space.n
     action_shape = ensemble.action_space.shape or ensemble.action_space.n
 
-    if rl == "DQN":
-        net = Actor(dim, action_shape, device)
-        if state_dict is not None:
-            net.load_state_dict(torch.load(state_dict, map_location=device))
-        optim = torch.optim.Adam(net.parameters(), lr=lr)
-        policy = DQN(net, optim, buf_size, rep_size, device=device)
-    else:
-        # PPO
-        net = Actor(dim, action_shape, device)
-        critic = PPO_critic(dim, action_shape, device)
-        if state_dict is not None:
-            model = torch.load(state_dict, map_location=device)
-            net.load_state_dict(model["actor"])
-            critic.load_state_dict(model["critic"])
-        optim = torch.optim.Adam(
-            [{"params": net.parameters(), "lr": lr}]
-            + [{"params": critic.parameters(), "lr": critic_lr}]
-        )
-        policy = PPO(net, critic, optim, device=device)
+    # PPO
+    net = Actor(dim, action_shape, device)
+    critic = PPO_critic(dim, action_shape, device)
+    if state_dict is not None:
+        model = torch.load(state_dict, map_location=device)
+        net.load_state_dict(model["actor"])
+        critic.load_state_dict(model["critic"])
+    optim = torch.optim.Adam(
+        [{"params": net.parameters(), "lr": lr}]
+        + [{"params": critic.parameters(), "lr": critic_lr}]
+    )
+    policy = PPO(net, critic, optim, device=device)
     lr_scheduler = torch.optim.lr_scheduler.ExponentialLR(optim, lr_decay)
 
     logger = WandbLogger(train_interval=batch_size, update_interval=batch_size, project="RL-DAS")
@@ -326,7 +319,7 @@ if __name__ == "__main__":
         logger.write(
             "train/learning rate", epoch, {"train/lr": lr_scheduler.get_lr()[-1]}
         )
-        TODO: wandb.log({"train/lr": lr_scheduler.get_lr()[-1]}, step=epoch)
+        wandb.log({"train/lr": lr_scheduler.get_lr()[-1]}, step=epoch)
 
         if (epoch + 1) % save_internal == 0:
             policy.save(log_path, epoch, run_time)

@@ -251,12 +251,12 @@ class PPO:
                 bl_val_detached = []
                 bl_val = []
                 for tt in range(length):
-                    logits, feature = self.actor_forward(old_states[tt], to_critic=True)
+                    logits = self.actor_forward(old_states[tt])
                     _, batch_log_likelyhood, batch_action = self.actor_sample(
                         logits, actions[tt]
                     )
                     logprobs.append(batch_log_likelyhood)
-                    baseline_val_detached, baseline_val = self.critic_forward(feature)
+                    baseline_val_detached, baseline_val = self.critic_forward(old_states[tt])
                     bl_val_detached.append(baseline_val_detached)
                     bl_val.append(baseline_val)
 
@@ -266,9 +266,7 @@ class PPO:
             Reward = []
             reward_reversed = memory["rewards"][::-1]
 
-            R = self.critic_forward(
-                self.actor_forward(old_states[-1], to_critic=True)[1]
-            )[0].view(-1)
+            R = self.critic_forward(old_states[-1])[0].view(-1)
             for r in range(len(reward_reversed)):
                 R = R * self.gamma + torch.tensor(
                     reward_reversed[r], dtype=torch.float32

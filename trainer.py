@@ -221,7 +221,7 @@ def Policy_train(
         act_count = np.zeros(probs.shape[1])
         for i in range(training_env.env_num):
             act_count[act[i]] += 1
-        logger.write_together(
+        logger.write(
             "train/action",
             total_steps,
             {
@@ -229,7 +229,7 @@ def Policy_train(
                 for i in range(len(act_count))
             },
         )
-        logger.write_together(
+        logger.write(
             "train/probs",
             total_steps,
             {f"probs{i}": avg_probs[i].cpu() for i in range(avg_probs.shape[0])},
